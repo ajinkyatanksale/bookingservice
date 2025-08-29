@@ -12,10 +12,7 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/manage/seats")
@@ -25,8 +22,8 @@ public class SeatBookingController {
     SeatBookingSearvice seatBookingService;
 
     @PostMapping("/lockSeat")
-    public ResponseEntity<Response> lockSeats(@Valid @RequestBody BookSeatsRequest bookSeatsRequest) throws JsonProcessingException {
-        SeatBookingStatusEnum lockSeatResult = seatBookingService.lockSeats(bookSeatsRequest.getShowId(), bookSeatsRequest.getSeats(), bookSeatsRequest.getUserId());
+    public ResponseEntity<Response> lockSeats(@Valid @RequestBody BookSeatsRequest bookSeatsRequest, @RequestParam("userId") long userId) throws JsonProcessingException {
+        SeatBookingStatusEnum lockSeatResult = seatBookingService.lockSeats(bookSeatsRequest.getShowId(), bookSeatsRequest.getSeats(), userId);
         Response response = new Response();
         if (lockSeatResult != SeatBookingStatusEnum.LOCKED) {
             FailureResponse failureResponse = new FailureResponse("Seat locking failed!", FailureEnum.valueOf(lockSeatResult.toString()));
@@ -39,8 +36,8 @@ public class SeatBookingController {
     }
 
     @PostMapping("/bookSeats")
-    public ResponseEntity<Response> bookSeats(@Valid @RequestBody BookSeatsRequest bookSeatsRequest) throws JsonProcessingException {
-        SeatBookingStatusEnum bookSeatResult = seatBookingService.bookSeats(bookSeatsRequest.getShowId(), bookSeatsRequest.getSeats(), bookSeatsRequest.getUserId());
+    public ResponseEntity<Response> bookSeats(@Valid @RequestBody BookSeatsRequest bookSeatsRequest, @RequestParam("userId") long userId) throws JsonProcessingException {
+        SeatBookingStatusEnum bookSeatResult = seatBookingService.bookSeats(bookSeatsRequest.getShowId(), bookSeatsRequest.getSeats(), userId);
         Response response = new Response();
         if (bookSeatResult != SeatBookingStatusEnum.BOOKED) {
             FailureResponse failureResponse = new FailureResponse("Seat booking failed!", FailureEnum.valueOf(bookSeatResult.toString()));

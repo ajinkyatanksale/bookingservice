@@ -2,10 +2,13 @@ package com.atcorp.eventmanagement.service.impl;
 
 import com.atcorp.eventmanagement.dao.ShowsDao;
 import com.atcorp.eventmanagement.dao.UserSeatMapDao;
+import com.atcorp.eventmanagement.dto.userdetails.RestUserDetailsResponse;
+import com.atcorp.eventmanagement.dto.userdetails.RestUserDetailsSuccessResponse;
 import com.atcorp.eventmanagement.entities.ShowEntity;
 import com.atcorp.eventmanagement.entities.UserSeatMapEntity;
 import com.atcorp.eventmanagement.entities.UserShowSeatId;
 import com.atcorp.eventmanagement.service.KafkaService;
+import com.atcorp.eventmanagement.service.RestClinetService;
 import com.atcorp.eventmanagement.service.SeatBookingSearvice;
 import com.atcorp.eventmanagement.util.enums.SeatBookingStatusEnum;
 import com.atcorp.eventmanagement.util.exceptions.SeatBookingException;
@@ -13,8 +16,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.swagger.v3.core.util.Json;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +41,9 @@ public class SeatBookingServiceImpl implements SeatBookingSearvice {
 
     @Autowired
     KafkaService kafkaService;
+
+    @Autowired
+    RestClinetService restClinetService;
 
     private final Logger logger = LoggerFactory.getLogger(SeatBookingServiceImpl.class);
 
@@ -77,6 +83,11 @@ public class SeatBookingServiceImpl implements SeatBookingSearvice {
 
         ShowEntity show = showEntity.get();
 
+        RestUserDetailsResponse response = restClinetService.getUserDetailsByUserId(userId);
+        if (Objects.nonNull(response.getFailureResponse())) {
+            throw new SeatBookingException("User not found");
+        }
+
         List<String> bookedSeats = objectMapper.convertValue(objectMapper.readTree(show.getBookedSeats()), new TypeReference<>() {});
 
         Set<String> bookedSeatSet = new HashSet<>(bookedSeats);
@@ -88,7 +99,6 @@ public class SeatBookingServiceImpl implements SeatBookingSearvice {
             boolean isCurrentSeatLocked = seatLockService.isSeatLocked(showId, seatId);
             if (isCurrentSeatLocked) {
                 long lockingUserId = seatLockService.getUserIdByKey(showId, seatId);
-                logger.info("User id from redis {}", String.valueOf(lockingUserId));
                 if (userId != lockingUserId) {
                     isSameUserLockedAllSeats = false;
                 }
@@ -120,34 +130,35 @@ public class SeatBookingServiceImpl implements SeatBookingSearvice {
         }
 
         userSeatMapDao.saveAll(userSeatMapEntityList);
-        kafkaService.sendMessage(createNotificationMessage());
+        kafkaService.sendMessage(createNotificationMessage(show, response.getSuccessResponse(), seatIds, userId));
         return SeatBookingStatusEnum.BOOKED;
     }
 
-    private JsonNode createNotificationMessage() {
-        ObjectNode dataObject = new ObjectMapper().createObjectNode()
-                .put("userName", "Ajinkya")
+    private JsonNode createNotificationMessage(ShowEntity show, RestUserDetailsSuccessResponse response, List<String> seats, long userId) {
+        ObjectNode bookingInfo = new ObjectMapper().createObjectNode()
+                .put("userName", response.getUsername())
                 .put("bookingId", "B12345")
-                .put("movie", "Narsimha")
-                .put("showTime", "2025-08-17T20:00:00+05:30");
+                .put("eventName", show.getEventEntity().getEventName())
+                .put("showTime", show.getShowTime().lower().toString());
+        ArrayNode bookedSeats = new ObjectMapper().createArrayNode();
+        seats.forEach(bookedSeats::add);
+        bookingInfo.putIfAbsent("seats", bookedSeats);
 
-        dataObject.putIfAbsent("seats", new ObjectMapper().createArrayNode().add("A1").add("A2"));
-
-        ObjectNode senderData = new ObjectMapper().createObjectNode()
-                .put("to", "user@example.com")
-                .putNull("phone")
+        ObjectNode receiverInfo = new ObjectMapper().createObjectNode()
+                .put("to", response.getUsername())
+                .put("phone", response.getPhoneNumber())
                 .putNull("pushToken");
-        senderData.putIfAbsent("cc", new ObjectMapper().createArrayNode());
+        receiverInfo.putIfAbsent("cc", new ObjectMapper().createArrayNode());
 
 
         ObjectNode notificationMessage = new ObjectMapper().createObjectNode()
-                .put("eventId", "2b6b7c62-8b0b-4b8e-9c3f-8a8b9e2a0b41")
-                .put("userId", 501)
+                .put("eventId", show.getEventEntity().getEventId())
+                .put("userId", userId)
                 .put("channel", "EMAIL")
                 .put("templateCode", "BOOKING_CONFIRMED")
                 .put("locale", "en-IN");
-        notificationMessage.putIfAbsent("data", dataObject);
-        notificationMessage.putIfAbsent("send", senderData);
+        notificationMessage.putIfAbsent("data", bookingInfo);
+        notificationMessage.putIfAbsent("send", receiverInfo);
 
         logger.info("Final Json => {}", notificationMessage);
 

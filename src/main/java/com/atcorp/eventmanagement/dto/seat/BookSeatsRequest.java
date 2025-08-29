@@ -18,6 +18,4 @@ public class BookSeatsRequest {
     @NotNull
     @NotEmpty
     private List<String> seats;
-    @NotNull
-    private long userId;
 }
